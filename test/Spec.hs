@@ -6,7 +6,7 @@ import Conduit
 import Prelude hiding (FilePath)
 import Data.Maybe (listToMaybe)
 import Data.Conduit.Combinators.Internal
-import Data.Conduit.Combinators (slidingWindow)
+import Data.Conduit.Combinators (slidingWindow, slidingVector)
 import Data.List (intersperse, sort, find)
 import Filesystem.Path (hasExtension)
 import Filesystem.Path.CurrentOS (encodeString)
@@ -611,6 +611,10 @@ main = hspec $ do
     it "slidingWindow 6" $
         let res = runIdentity $ yieldMany [1..5] $= slidingWindow 6 $$ sinkList
         in res `shouldBe` [[1,2,3,4,5]]
+    prop "slidingVector idem to slidingWindow" $ \input ((+1) . (`mod` 30) . abs -> size) -> do
+        let expected = runIdentity $ yieldMany input $$ slidingWindow size =$ sinkList
+        actual <- yieldMany (input :: [Int]) $$ slidingVector size =$ sinkList
+        actual `shouldBe` (expected :: [VU.Vector Int])
     prop "vectorBuilder" $ \(values :: [[Int]]) ((+1) . (`mod` 30) . abs -> size) -> do
         let res = runST
                 $ yieldMany values

@@ -142,6 +142,7 @@ module Data.Conduit.Combinators
     , concatMapAccum
     , intersperse
     , slidingWindow
+    , slidingVector
 
       -- *** Binary base encoding
     , encodeBase64
@@ -186,7 +187,7 @@ import qualified Data.ByteString as S
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
-import           Control.Applicative         ((<$>))
+import           Control.Applicative         ((<$>), (<*>))
 import           Control.Exception           (assert)
 import           Control.Category            (Category (..))
 import           Control.Monad               (unless, when, (>=>), liftM, forever)
@@ -1436,6 +1437,70 @@ slidingWindow sz = go (if sz <= 0 then 1 else sz) mempty
                      case m of
                        Nothing -> yield st
                        Just x -> go (n-1) (Seq.snoc st x)
+
+-- | Same functionality as 'slidingWindow', but implemented more efficiently
+-- due to the usage of mutable vector under the surface. Externally, this is
+-- referentially transparent.
+--
+-- Since 1.0.0
+slidingVector :: (PrimMonad base, MonadBase base m, V.Vector v a)
+              => Int
+              -> Conduit a m (v a)
+slidingVector size' =
+    liftBase newBuff >>= phase1 0
+  where
+    size = max 1 size'
+    buffSize = size * 2 - 1
+
+    newBuff = VM.new buffSize
+
+    phase1 idx mv =
+        await >>= maybe finish poke
+      where
+        finish
+            | idx == 0 = return ()
+            | otherwise = do
+                v <- liftBase $ V.unsafeFreeze mv
+                yield $ V.unsafeTake idx v
+
+        poke x = do
+            liftBase $ VM.write mv idx x
+            let idx' = succ idx
+            if idx' >= size
+                then do
+                    (v, mv2) <- liftBase $ (,)
+                        <$> V.unsafeFreeze mv
+                        <*> newBuff
+                    yield $ V.unsafeTake idx' v
+                    phase2 mv idx' mv2 0
+                else phase1 idx' mv
+
+    phase2 mv1 idx1 mv2 idx2 =
+        await >>= maybe (return ()) poke
+      where
+        poke x = do
+            v1 <- liftBase $ do
+                VM.write mv1 idx1 x
+                VM.write mv2 idx2 x
+                V.unsafeFreeze mv1
+            let idx1' = succ idx1
+                idx2' = succ idx2
+            yield $ V.unsafeTake idx2' $ V.unsafeDrop size v1
+            if idx1' >= buffSize
+                then phase3 mv2 idx2'
+                else phase2 mv1 idx1' mv2 idx2'
+
+    phase3 mv idx =
+        await >>= maybe (return ()) poke
+      where
+        poke x = do
+            v <- liftBase $ do
+                VM.write mv idx x
+                V.unsafeFreeze mv
+            let idx' = succ idx
+            yield $ V.unsafeTake idx' v
+
+{-# SPECIALIZE slidingVector :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
 
 codeWith :: Monad m
          => Int

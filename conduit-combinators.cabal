@@ -1,5 +1,5 @@
 name:                conduit-combinators
-version:             0.2.8.2
+version:             0.2.9
 synopsis:            Commonly used conduit functions, for both chunked and unchunked data
 description:         Provides a replacement for Data.Conduit.List, as well as a convenient Conduit module.
 homepage:            https://github.com/fpco/conduit-combinators
@@ -62,6 +62,18 @@ test-suite test
                 , base64-bytestring
                 , system-filepath
   ghc-options:    -Wall
+
+benchmark sliding
+  type: exitcode-stdio-1.0
+  hs-source-dirs: bench
+  build-depends:  base
+                , criterion
+                , conduit-combinators
+                , vector
+                , containers
+                , mono-traversable
+  main-is:        sliding.hs
+  ghc-options:    -Wall -O2
 
 source-repository head
   type:     git
