@@ -1450,49 +1450,55 @@ slidingVector :: (PrimMonad base, MonadBase base m, V.Vector v a)
 slidingVector size | size <= 1 =
     peek >>= maybe (yield V.empty) (Prelude.const $ map V.singleton)
 slidingVector size =
-    liftBase newBuff >>= phase1 0
+    liftBase newBuff >>= Prelude.flip phase1 0
   where
     buffSize = size * 4 -- somewhat arbitrary
+    sizeM1 = size - 1
 
     newBuff = VM.new buffSize
 
-    phase1 idx mv =
-        await >>= maybe finish poke
+    phase1 mv =
+        loop
       where
-        finish = do
-            v <- liftBase $ V.unsafeFreeze mv
-            yield $ V.unsafeTake idx v
+        loop idx =
+            await >>= maybe finish poke
+          where
+            finish = do
+                v <- liftBase $ V.unsafeFreeze mv
+                yield $ V.unsafeTake idx v
 
-        poke x = do
-            liftBase $ VM.write mv idx x
-            let idx' = succ idx
-            if idx' >= size
-                then assert (idx' == size) $ do
-                    v <- liftBase $ V.unsafeFreeze mv
-                    yield $ V.unsafeTake size v
-                    phase2 mv idx'
-                else phase1 idx' mv
+            poke x = do
+                liftBase $ VM.write mv idx x
+                let idx' = succ idx
+                if idx' >= size
+                    then assert (idx' == size) $ do
+                        v <- liftBase $ V.unsafeFreeze mv
+                        yield $ V.unsafeTake size v
+                        phase2 mv idx'
+                    else loop idx'
 
-    phase2 mv idx =
-        await >>= maybe (return ()) poke
+    phase2 mv =
+        loop
       where
-        poke x = do
-            v <- liftBase $ do
-                VM.write mv idx x
-                V.unsafeFreeze mv
-            let idx' = succ idx
-            yield $ V.unsafeTake size $ V.unsafeDrop (idx' - size) v
-            if idx' >= buffSize
-                then do
-                    let sizeM1 = size - 1
-                    mv2 <- liftBase $ do
-                        mv2 <- newBuff
-                        VM.unsafeCopy
-                            (VM.unsafeTake sizeM1 mv2)
-                            (VM.unsafeDrop (buffSize - size + 1) mv)
-                        return mv2
-                    phase2 mv2 sizeM1
-                else phase2 mv idx'
+        loop idx =
+            await >>= maybe (return ()) poke
+          where
+            poke x = do
+                v <- liftBase $ do
+                    VM.write mv idx x
+                    V.unsafeFreeze mv
+                let idx' = succ idx
+                yield $ V.unsafeTake size $ V.unsafeDrop (idx' - size) v
+                if idx' >= buffSize
+                    then do
+                        mv2 <- liftBase $ do
+                            mv2 <- newBuff
+                            VM.unsafeCopy
+                                (VM.unsafeTake sizeM1 mv2)
+                                (VM.unsafeDrop (buffSize - size + 1) mv)
+                            return mv2
+                        phase2 mv2 sizeM1
+                    else loop idx'
 {-# INLINABLE slidingVector #-}
 
 codeWith :: Monad m
