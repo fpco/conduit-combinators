@@ -1430,9 +1430,9 @@ slidingWindow sz = go (if sz <= 0 then 1 else sz) mempty
                           maybe (return ())
                                 (\x -> do
                                    let st' = Seq.snoc st x
-                                   yield st' >> goContinue (Seq.unsafeTail st')
+                                   st' `seq` yield st' >> goContinue (Seq.unsafeTail st')
                                 )
-          go 0 st = yield st >> goContinue (Seq.unsafeTail st)
+          go 0 st = st `seq` yield st >> goContinue (Seq.unsafeTail st)
           go !n st = CL.head >>= \m ->
                      case m of
                        Nothing -> yield st
