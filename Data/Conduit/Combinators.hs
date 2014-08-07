@@ -1437,6 +1437,7 @@ slidingWindow sz = go (if sz <= 0 then 1 else sz) mempty
                      case m of
                        Nothing -> yield st
                        Just x -> go (n-1) (Seq.snoc st x)
+{-# INLINABLE slidingWindow #-}
 
 -- | Same functionality as 'slidingWindow', but implemented more efficiently
 -- due to the usage of mutable vector under the surface. Externally, this is
@@ -1446,51 +1447,33 @@ slidingWindow sz = go (if sz <= 0 then 1 else sz) mempty
 slidingVector :: (PrimMonad base, MonadBase base m, V.Vector v a)
               => Int
               -> Conduit a m (v a)
-slidingVector size' =
+slidingVector size | size <= 1 =
+    peek >>= maybe (yield V.empty) (Prelude.const $ map V.singleton)
+slidingVector size =
     liftBase newBuff >>= phase1 0
   where
-    size = max 1 size'
-    buffSize = size * 2 - 1
+    buffSize = size * 4 -- somewhat arbitrary
 
     newBuff = VM.new buffSize
 
     phase1 idx mv =
         await >>= maybe finish poke
       where
-        finish
-            | idx == 0 = return ()
-            | otherwise = do
-                v <- liftBase $ V.unsafeFreeze mv
-                yield $ V.unsafeTake idx v
+        finish = do
+            v <- liftBase $ V.unsafeFreeze mv
+            yield $ V.unsafeTake idx v
 
         poke x = do
             liftBase $ VM.write mv idx x
             let idx' = succ idx
             if idx' >= size
-                then do
-                    (v, mv2) <- liftBase $ (,)
-                        <$> V.unsafeFreeze mv
-                        <*> newBuff
-                    yield $ V.unsafeTake idx' v
-                    phase2 mv idx' mv2 0
+                then assert (idx' == size) $ do
+                    v <- liftBase $ V.unsafeFreeze mv
+                    yield $ V.unsafeTake size v
+                    phase2 mv idx'
                 else phase1 idx' mv
 
-    phase2 mv1 idx1 mv2 idx2 =
-        await >>= maybe (return ()) poke
-      where
-        poke x = do
-            v1 <- liftBase $ do
-                VM.write mv1 idx1 x
-                VM.write mv2 idx2 x
-                V.unsafeFreeze mv1
-            let idx1' = succ idx1
-                idx2' = succ idx2
-            yield $ V.unsafeTake idx2' $ V.unsafeDrop size v1
-            if idx1' >= buffSize
-                then phase3 mv2 idx2'
-                else phase2 mv1 idx1' mv2 idx2'
-
-    phase3 mv idx =
+    phase2 mv idx =
         await >>= maybe (return ()) poke
       where
         poke x = do
@@ -1498,9 +1481,19 @@ slidingVector size' =
                 VM.write mv idx x
                 V.unsafeFreeze mv
             let idx' = succ idx
-            yield $ V.unsafeTake idx' v
-
-{-# SPECIALIZE slidingVector :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
+            yield $ V.unsafeTake size $ V.unsafeDrop (idx' - size) v
+            if idx' >= buffSize
+                then do
+                    let sizeM1 = size - 1
+                    mv2 <- liftBase $ do
+                        mv2 <- newBuff
+                        VM.unsafeCopy
+                            (VM.unsafeTake sizeM1 mv2)
+                            (VM.unsafeDrop (buffSize - size + 1) mv)
+                        return mv2
+                    phase2 mv2 sizeM1
+                else phase2 mv idx'
+{-# INLINABLE slidingVector #-}
 
 codeWith :: Monad m
          => Int

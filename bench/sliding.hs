@@ -8,11 +8,13 @@ import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Sequence
 import Data.MonoTraversable (Element)
+import Control.DeepSeq (NFData, deepseq)
 
 input :: Monad m => Source m Int
 input = yieldMany [1..100000]
 
-benchHelper :: String
+benchHelper :: NFData a
+            => String
             -> (Int -> Conduit Int IO a)
             -> String
             -> a -- ^ dummy
@@ -22,7 +24,7 @@ benchHelper name1 conduit name2 _dummy =
     $ whnfIO
     $ input
    $$ conduit 30
-   =$ sinkNull
+   =$ foldlC (\x y -> y `deepseq` x) ()
 
 {-
 benchV :: (Element (seq Int) ~ Int)
