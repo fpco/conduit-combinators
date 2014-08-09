@@ -143,6 +143,7 @@ module Data.Conduit.Combinators
     , intersperse
     , slidingWindow
     , slidingVectorWindow
+    , slidingVectorWindowA
 
       -- *** Binary base encoding
     , encodeBase64
@@ -1468,6 +1469,38 @@ slidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
             yield v
           go end' mv mv2
 {-# SPECIALIZE slidingVectorWindow :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
+
+-- | Sliding window of values in a vector
+--
+-- Provides the same functionality as 'slidingWindow', but with
+-- vectors. Amortized O(1) time per element.
+slidingVectorWindowA :: (PrimMonad base, MonadBase base m, V.Vector v a)
+                       => Int -> Conduit a m (v a)
+slidingVectorWindowA sz0 = newBuf >>= go 0
+  where
+    sz = max sz0 1
+    bufSz = 2 * sz
+    newBuf = liftBase (VM.new bufSz)
+
+    go !end mv | end == bufSz = do
+      mv' <- newBuf
+      liftBase $ VM.unsafeCopy (VM.unsafeSlice 1 (sz-1) mv')
+                               (VM.unsafeSlice (sz+1) (sz-1) mv)
+      go sz mv'
+    go !end mv = do
+      mx <- await
+      case mx of
+        Nothing -> when (end > 0 && end < sz) $ do
+          v <- liftBase $ V.unsafeFreeze $ VM.take end mv
+          yield v
+        Just x -> do
+          liftBase $ VM.unsafeWrite mv end x
+          let end' = end + 1
+          when (end' >= sz) $ do
+            v <- liftBase $ V.unsafeFreeze $ VM.unsafeSlice (end' - sz) sz mv
+            yield v
+          go end' mv
+-- {-# SPECIALIZE slidingVectorWindowA :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
 
 codeWith :: Monad m
          => Int
