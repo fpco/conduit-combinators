@@ -142,6 +142,7 @@ module Data.Conduit.Combinators
     , concatMapAccum
     , intersperse
     , slidingWindow
+    , slidingVectorWindow
 
       -- *** Binary base encoding
     , encodeBase64
@@ -186,10 +187,10 @@ import qualified Data.ByteString as S
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
-import           Control.Applicative         ((<$>))
+import           Control.Applicative         ((<$>), (<*>))
 import           Control.Exception           (assert)
 import           Control.Category            (Category (..))
-import           Control.Monad               (unless, when, (>=>), liftM, forever)
+import           Control.Monad               (unless, when, (>=>), liftM, forever, join)
 import           Control.Monad.Base          (MonadBase (liftBase))
 import           Control.Monad.IO.Class      (MonadIO (..))
 import           Control.Monad.Primitive     (PrimMonad, PrimState)
@@ -214,7 +215,7 @@ import           Prelude                     (Bool (..), Eq (..), Int,
                                               Ord (..), fromIntegral, maybe,
                                               ($), Functor (..), Enum, seq, Show, Char, (||),
                                               mod, otherwise, Either (..),
-                                              ($!), succ)
+                                              ($!), succ, (&&))
 import Data.Word (Word8)
 import qualified Prelude
 import           System.IO                   (Handle)
@@ -1424,8 +1425,9 @@ intersperse x =
 --
 -- Since 1.0.0
 slidingWindow :: (Monad m, Seq.IsSequence seq, Element seq ~ a) => Int -> Conduit a m seq
-slidingWindow sz = go (if sz <= 0 then 1 else sz) mempty
-    where goContinue st = await >>=
+slidingWindow sz0 = go sz mempty
+    where sz = max 1 sz0
+          goContinue st = await >>=
                           maybe (return ())
                                 (\x -> do
                                    let st' = Seq.snoc st x
@@ -1434,8 +1436,38 @@ slidingWindow sz = go (if sz <= 0 then 1 else sz) mempty
           go 0 st = yield st >> goContinue (Seq.unsafeTail st)
           go !n st = CL.head >>= \m ->
                      case m of
-                       Nothing -> yield st
+                       Nothing | n < sz -> yield st
+                               | otherwise -> return ()
                        Just x -> go (n-1) (Seq.snoc st x)
+
+-- | Sliding window of values in a vector
+--
+-- Provides the same functionality as 'slidingWindow', but with
+-- vectors. O(1) time per element.
+slidingVectorWindow :: (PrimMonad base, MonadBase base m, V.Vector v a)
+                       => Int -> Conduit a m (v a)
+slidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
+  where
+    sz = max sz0 1
+    bufSz = 2 * sz
+    newBuf = liftBase (VM.new bufSz)
+
+    go !end mv mv2 | end == bufSz  = newBuf >>= go sz mv2
+    go !end mv mv2 = do
+      mx <- await
+      case mx of
+        Nothing -> when (end > 0 && end < sz) $ do
+          v <- liftBase $ V.unsafeFreeze $ VM.take end mv
+          yield v
+        Just x -> do
+          liftBase $ do VM.unsafeWrite mv end x
+                        when (end > sz) $ VM.unsafeWrite mv2 (end - sz) x
+          let end' = end + 1
+          when (end' >= sz) $ do
+            v <- liftBase $ V.unsafeFreeze $ VM.unsafeSlice (end' - sz) sz mv
+            yield v
+          go end' mv mv2
+{-# SPECIALIZE slidingVectorWindow :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
 
 codeWith :: Monad m
          => Int

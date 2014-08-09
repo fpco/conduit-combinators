@@ -131,6 +131,7 @@ module Data.Conduit.Combinators.Unqualified
     , concatMapAccumC
     , intersperseC
     , slidingWindowC
+    , slidingVectorWindowC
 
       -- **** Binary base encoding
     , encodeBase64C
@@ -1176,6 +1177,15 @@ intersperseC = CC.intersperse
 slidingWindowC :: (Monad m, Seq.IsSequence seq, Element seq ~ a) => Int -> Conduit a m seq
 slidingWindowC = CC.slidingWindow
 {-# INLINE slidingWindowC #-}
+
+-- | Sliding window of values in a vector
+--
+-- Provides the same functionality as 'slidingWindow', but with
+-- vectors. O(1) time per element.
+slidingVectorWindowC :: (PrimMonad base, MonadBase base m, V.Vector v a)
+                       => Int -> Conduit a m (v a)
+slidingVectorWindowC = CC.slidingVectorWindow
+{-# INLINE slidingVectorWindowC #-}
 
 -- | Apply base64-encoding to the stream.
 --
