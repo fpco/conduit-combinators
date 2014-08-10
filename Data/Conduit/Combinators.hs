@@ -143,6 +143,7 @@ module Data.Conduit.Combinators
     , intersperse
     , slidingWindow
     , slidingVectorWindow
+    , slidingVectorWindowUnsafe
     , slidingVectorWindowA
 
       -- *** Binary base encoding
@@ -1469,6 +1470,31 @@ slidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
             yield v
           go end' mv mv2
 {-# SPECIALIZE slidingVectorWindow :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
+
+slidingVectorWindowUnsafe :: (PrimMonad base, MonadBase base m, V.Vector v a)
+                       => Int -> Conduit a m (v a)
+slidingVectorWindowUnsafe sz0 = join $ go 0 <$> newBuf <*> newBuf
+  where
+    sz = max sz0 1
+    bufSz = 2 * sz
+    newBuf = liftBase (VM.new bufSz)
+
+    go !end mv mv2 | end == bufSz  = newBuf >>= go sz mv2
+    go !end mv mv2 = do
+      mx <- await
+      case mx of
+        Nothing -> when (end > 0 && end < sz) $ do
+          v <- liftBase $ V.unsafeFreeze $ VM.take end mv
+          yield v
+        Just x -> do
+          liftBase $ do VM.unsafeWrite mv end x
+                        when (end > sz) $ VM.unsafeWrite mv2 (end - sz) x
+          let end' = end + 1
+          when (end' >= sz) $ do
+            v <- liftBase $ V.unsafeFreeze $ VM.unsafeSlice (end' - sz) sz mv
+            yield v
+          go end' mv mv2
+{-# SPECIALIZE slidingVectorWindowUnsafe :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
 
 -- | Sliding window of values in a vector
 --
