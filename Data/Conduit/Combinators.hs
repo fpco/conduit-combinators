@@ -240,6 +240,8 @@ import qualified System.Posix.Directory as Dir
 import qualified Data.Conduit.Filesystem as CF
 #endif
 
+import System.IO.Unsafe
+
 -- END IMPORTS
 
 -- | Yield each of the values contained by the given @MonoFoldable@.
@@ -1471,7 +1473,7 @@ slidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
           go end' mv mv2
 {-# SPECIALIZE slidingVectorWindow :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
 
-slidingVectorWindowUnsafe :: (PrimMonad base, MonadBase base m, V.Vector v a)
+slidingVectorWindowUnsafe :: (MonadBase SIO.IO m, V.Vector v a)
                        => Int -> Conduit a m (v a)
 slidingVectorWindowUnsafe sz0 = join $ go 0 <$> newBuf <*> newBuf
   where
@@ -1479,7 +1481,6 @@ slidingVectorWindowUnsafe sz0 = join $ go 0 <$> newBuf <*> newBuf
     bufSz = 2 * sz
     newBuf = liftBase (VM.new bufSz)
 
-    go !end mv mv2 | end == bufSz  = newBuf >>= go sz mv2
     go !end mv mv2 = do
       mx <- await
       case mx of
@@ -1488,13 +1489,19 @@ slidingVectorWindowUnsafe sz0 = join $ go 0 <$> newBuf <*> newBuf
           yield v
         Just x -> do
           let end' = end + 1
-          v <- liftBase $ do
+          unsafeDupablePerformIO $ do
             VM.unsafeWrite mv end x
             when (end > sz) $ VM.unsafeWrite mv2 (end - sz) x
-            v <- V.unsafeFreeze $ VM.unsafeSlice (end' - sz) sz mv
-            return v
-          when (end' >= sz) $ yield v
-          go end' mv mv2
+            if end' == bufSz
+                then do
+                    mv3 <- VM.new bufSz
+                    !v <- V.unsafeFreeze $ VM.unsafeSlice (end' - sz) sz mv
+                    return $ yield v >> go sz mv2 mv3
+                else if end' >= sz
+                        then do
+                            !v <- V.unsafeFreeze $ VM.unsafeSlice (end' - sz) sz mv
+                            return $ yield v >> go end' mv mv2
+                        else return $ go end' mv mv2
 {-# SPECIALIZE slidingVectorWindowUnsafe :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
 
 -- | Sliding window of values in a vector
