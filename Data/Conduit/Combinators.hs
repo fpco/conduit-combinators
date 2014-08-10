@@ -1487,12 +1487,12 @@ slidingVectorWindowUnsafe sz0 = join $ go 0 <$> newBuf <*> newBuf
           v <- liftBase $ V.unsafeFreeze $ VM.take end mv
           yield v
         Just x -> do
-          liftBase $ do VM.unsafeWrite mv end x
-                        when (end > sz) $ VM.unsafeWrite mv2 (end - sz) x
           let end' = end + 1
-          when (end' >= sz) $ do
-            v <- liftBase $ V.unsafeFreeze $ VM.unsafeSlice (end' - sz) sz mv
-            yield v
+          v <- liftBase $ do
+            VM.unsafeWrite mv end x
+            when (end > sz) $ VM.unsafeWrite mv2 (end - sz) x
+            V.unsafeFreeze $ VM.unsafeSlice (end' - sz) sz mv
+          when (end' >= sz) $ yield v
           go end' mv mv2
 {-# SPECIALIZE slidingVectorWindowUnsafe :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
 
