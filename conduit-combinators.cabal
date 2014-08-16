@@ -73,6 +73,7 @@ benchmark sliding
                 , containers
                 , mono-traversable
                 , random
+                , deepseq
   main-is:        sliding.hs
   ghc-options:    -Wall -O2
 

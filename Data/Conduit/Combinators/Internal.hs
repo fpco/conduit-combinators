@@ -42,7 +42,7 @@ initReplicateConnect mseed f cnt0 (ConduitM sink0) = do
         loop cnt (PipeM mp) = mp >>= loop cnt
         loop _ (Leftover _ i) = absurd i
 
-    loop cnt0 (injectLeftovers sink0)
+    loop cnt0 $ injectLeftovers $ sink0 Done
   where
     finish (Done r) = return r
     finish (HaveOutput _ _ o) = absurd o
@@ -80,7 +80,7 @@ initRepeatConnect mseed f (ConduitM sink0) = do
         loop (PipeM mp) = mp >>= loop
         loop (Leftover _ i) = absurd i
 
-    loop (injectLeftovers sink0)
+    loop $ injectLeftovers $ sink0 Done
 {-# RULES "initRepeatConnect" forall mseed f sink.
     initRepeat mseed f $$ sink
     = initRepeatConnect mseed f sink

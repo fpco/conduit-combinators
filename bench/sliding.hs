@@ -12,10 +12,11 @@ import qualified Data.Sequence
 import Data.MonoTraversable (Element, unsafeHead)
 import qualified Data.Sequences              as Seq
 import System.Random (randomRIO)
+import Control.DeepSeq (deepseq, NFData)
 
 nn, window :: Int
 nn = 20000
-window = 100
+window = 2
 
 input :: Source IO Int
 input = lift (randomRIO (0, nn)) >>= go nn
@@ -23,7 +24,7 @@ input = lift (randomRIO (0, nn)) >>= go nn
     go !k !x | k < 0     = return ()
              | otherwise = yield x >> go (k-1) (x+1)
 
-benchHelper :: (Seq.IsSequence seq, Element seq ~ Int)
+benchHelper :: (Seq.IsSequence seq, Element seq ~ Int, NFData seq)
             => String
             -> (Int -> Conduit Int IO seq)
             -> String
@@ -36,7 +37,7 @@ benchHelper name1 conduit name2 _dummy =
    $$ conduit window
    =$ sinkForce
 
-sinkForce :: (Seq.IsSequence seq, Element seq ~ Int)
+sinkForce :: (Seq.IsSequence seq, Element seq ~ Int, NFData seq)
              => Consumer seq IO ()
 sinkForce = go 0
   where
@@ -44,7 +45,7 @@ sinkForce = go 0
       ms <- await
       case ms of
         Nothing -> return ()
-        Just s -> go (x + unsafeHead s)
+        Just s -> s `deepseq` go (x + unsafeHead s)
 
 {-
 benchV :: (Element (seq Int) ~ Int)

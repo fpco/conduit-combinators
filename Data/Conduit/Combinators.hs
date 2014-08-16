@@ -1478,7 +1478,7 @@ slidingVectorWindowUnsafe :: (MonadBase SIO.IO m, V.Vector v a)
 slidingVectorWindowUnsafe sz0 = join $ go 0 <$> newBuf <*> newBuf
   where
     sz = max sz0 1
-    bufSz = 2 * sz
+    bufSz = min 128 (2 * sz)
     newBuf = liftBase (VM.new bufSz)
 
     go !end mv mv2 = do
@@ -1906,14 +1906,13 @@ onAwait :: Monad m
         => ConduitM i o m ()
         -> Sink i m r
         -> ConduitM i o m r
-onAwait (ConduitM callback) =
-    ConduitM . go . unConduitM
-  where
-    go (Done r) = Done r
+onAwait (ConduitM callback) (ConduitM c0) = ConduitM $ \rest -> let
+    go (Done r) = rest r
     go (HaveOutput _ _ o) = absurd o
-    go (NeedInput f g) = callback >> NeedInput (go . f) (go . g)
+    go (NeedInput f g) = callback $ \() -> NeedInput (go . f) (go . g)
     go (PipeM mp) = PipeM (liftM go mp)
     go (Leftover f i) = Leftover (go f) i
+    in go $ c0 Done
 {-# INLINE onAwait #-}
 
 yieldS :: (PrimMonad base, MonadBase base m)
