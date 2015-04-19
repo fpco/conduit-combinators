@@ -1,25 +1,26 @@
 name:                conduit-combinators
-version:             0.2.9
+version:             0.3.2
 synopsis:            Commonly used conduit functions, for both chunked and unchunked data
 description:         Provides a replacement for Data.Conduit.List, as well as a convenient Conduit module.
 homepage:            https://github.com/fpco/conduit-combinators
 license:             MIT
 license-file:        LICENSE
-author:              Michael snoyman
+author:              Michael Snoyman
 maintainer:          michael@snoyman.com
 category:            Data, Conduit
 build-type:          Simple
 cabal-version:       >=1.8
-extra-source-files:  test/subdir/dummyfile.txt
+extra-source-files:  test/subdir/dummyfile.txt fusion-macros.h ChangeLog.md README.md
 
 library
   exposed-modules:     Conduit
                        Data.Conduit.Combinators
                        Data.Conduit.Combinators.Internal
+                       Data.Conduit.Combinators.Stream
   other-modules:       Data.Conduit.Combinators.Unqualified
   build-depends:       base >= 4 && < 5
                      , chunked-data
-                     , conduit >= 1.0.12
+                     , conduit >= 1.2.2
                      , conduit-extra >= 1.1.1
                      , transformers
                      , transformers-base
@@ -41,10 +42,13 @@ library
       cpp-options:     -DWINDOWS
   else
       build-depends:   unix
+  include-dirs:        .
+  ghc-options:         -Wall -O2 -rtsopts
 
 test-suite test
   hs-source-dirs: test
   main-is:        Spec.hs
+  other-modules:  StreamSpec
   type:           exitcode-stdio-1.0
   cpp-options:    -DTEST
   build-depends:  conduit-combinators
@@ -61,6 +65,12 @@ test-suite test
                 , base16-bytestring
                 , base64-bytestring
                 , system-filepath
+                , mtl
+                , conduit
+                , containers
+                , safe
+                , QuickCheck >= 2.5
+                , directory
   ghc-options:    -Wall
 
 benchmark sliding

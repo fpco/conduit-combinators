@@ -165,6 +165,7 @@ module Data.Conduit.Combinators.Unqualified
 
       -- ** Special
     , vectorBuilderC
+    , CC.peekForever
     ) where
 
 -- BEGIN IMPORTS
@@ -226,11 +227,6 @@ import           Data.Primitive.MutVar       (MutVar, newMutVar, readMutVar,
 import qualified System.Posix.Directory as Dir
 #endif
 
-#if MIN_VERSION_conduit(1,1,0)
-import qualified Data.Conduit.Filesystem as CF
-#endif
-
-
 -- END IMPORTS
 
 -- | Yield each of the values contained by the given @MonoFoldable@.
@@ -261,7 +257,7 @@ unfoldC = CC.unfold
 -- structures.
 --
 -- Since 1.0.0
-enumFromToC :: (Monad m, Enum a, Eq a) => a -> a -> Producer m a
+enumFromToC :: (Monad m, Enum a, Ord a) => a -> a -> Producer m a
 enumFromToC = CC.enumFromTo
 {-# INLINE enumFromToC #-}
 
