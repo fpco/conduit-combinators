@@ -145,7 +145,7 @@ module Data.Conduit.Combinators
     , intersperse
     , slidingWindow
     , slidingVectorWindow
-    , slidingVectorWindowA
+    , unsafeSlidingVectorWindow
 
       -- *** Binary base encoding
     , encodeBase64
@@ -223,7 +223,7 @@ import           Prelude                     (Bool (..), Eq (..), Int,
                                               Ord (..), fromIntegral, maybe,
                                               ($), Functor (..), Enum, seq, Show, Char, (||),
                                               mod, otherwise, Either (..),
-                                              ($!), succ, (&&))
+                                              ($!), succ)
 import Data.Word (Word8)
 import qualified Prelude
 import           System.IO                   (Handle)
@@ -1542,9 +1542,8 @@ STREAMING(intersperse, intersperseC, intersperseS, x)
 --
 -- Since 1.0.0
 slidingWindow, slidingWindowC :: (Monad m, Seq.IsSequence seq, Element seq ~ a) => Int -> Conduit a m seq
-slidingWindow sz0 = go sz mempty
-    where sz = max 1 sz0
-          goContinue st = await >>=
+slidingWindowC sz = go (max 1 sz) mempty
+    where goContinue st = await >>=
                           maybe (return ())
                                 (\x -> do
                                    let st' = Seq.snoc st x
@@ -1553,71 +1552,82 @@ slidingWindow sz0 = go sz mempty
           go 0 st = yield st >> goContinue (Seq.unsafeTail st)
           go !n st = CL.head >>= \m ->
                      case m of
-                       Nothing | n < sz -> yield st
-                               | otherwise -> return ()
+                       Nothing -> yield st
                        Just x -> go (n-1) (Seq.snoc st x)
 STREAMING(slidingWindow, slidingWindowC, slidingWindowS, sz)
 
 -- | Sliding window of values in a vector
 --
 -- Provides the same functionality as 'slidingWindow', but with
--- vectors. O(1) time per element.
+-- vectors. O(1) time per element. Buffers results in chunks
+-- of the window size in order to avoid allocating a new vector
+-- for every yield.  To prevent buffering, use
+-- 'unsafeSlidingVectorWindow'.
 slidingVectorWindow :: (PrimMonad base, MonadBase base m, V.Vector v a)
-                       => Int -> Conduit a m (v a)
+                    => Int -> Conduit a m (v a)
 slidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
   where
     sz = max sz0 1
     bufSz = 2 * sz
     newBuf = liftBase (VM.new bufSz)
 
-    go !end mv mv2 | end == bufSz  = newBuf >>= go sz mv2
+    yieldWindows n0 end v = yld n0
+      where
+        yld n | n == end = return ()
+        yld n = do
+          yield (V.unsafeSlice n sz v)
+          yld (n + 1)
+
+    go !end mv mv2 | end == bufSz = do
+      v <- liftBase (V.unsafeFreeze mv)
+      yieldWindows 0 sz v
+      newBuf >>= go sz mv2
     go !end mv mv2 = do
       mx <- await
       case mx of
-        Nothing -> when (end > 0 && end < sz) $ do
-          v <- liftBase $ V.unsafeFreeze $ VM.take end mv
-          yield v
+        Nothing -> do
+          v <- liftBase $ V.unsafeFreeze mv
+          if end < sz
+            then yield $ V.take end v
+            else yieldWindows 0 (end - sz + 1) v
         Just x -> do
           liftBase $ do VM.unsafeWrite mv end x
-                        when (end > sz) $ VM.unsafeWrite mv2 (end - sz) x
-          let end' = end + 1
-          when (end' >= sz) $ do
-            v <- liftBase $ V.unsafeFreeze $ VM.unsafeSlice (end' - sz) sz mv
-            yield v
-          go end' mv mv2
+                        when (end >= sz) $ VM.unsafeWrite mv2 (end - sz) x
+          go (end + 1) mv mv2
 {-# SPECIALIZE slidingVectorWindow :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
 
 -- | Sliding window of values in a vector
 --
 -- Provides the same functionality as 'slidingWindow', but with
--- vectors. Amortized O(1) time per element.
-slidingVectorWindowA :: (PrimMonad base, MonadBase base m, V.Vector v a)
-                       => Int -> Conduit a m (v a)
-slidingVectorWindowA sz0 = newBuf >>= go 0
+-- vectors. O(1) time per element.
+--
+-- WARNING: It is /not/ safe to use the yielded vectors outside the inner sink.
+unsafeSlidingVectorWindow :: (PrimMonad base, MonadBase base m, V.Vector v a)
+                          => Int -> Conduit a m (v a)
+unsafeSlidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
   where
     sz = max sz0 1
     bufSz = 2 * sz
     newBuf = liftBase (VM.new bufSz)
 
-    go !end mv | end == bufSz = do
-      mv' <- newBuf
-      liftBase $ VM.unsafeCopy (VM.unsafeSlice 1 (sz-1) mv')
-                               (VM.unsafeSlice (sz+1) (sz-1) mv)
-      go sz mv'
-    go !end mv = do
+    go !end _ mv2 | end == bufSz = newBuf >>= go sz mv2
+    go !end mv mv2 = do
       mx <- await
       case mx of
-        Nothing -> when (end > 0 && end < sz) $ do
+        Nothing -> when (end < sz) $ do
           v <- liftBase $ V.unsafeFreeze $ VM.take end mv
           yield v
         Just x -> do
-          liftBase $ VM.unsafeWrite mv end x
+          liftBase $ do VM.unsafeWrite mv end x
+                        when (end >= sz) $ VM.unsafeWrite mv2 (end - sz) x
           let end' = end + 1
-          when (end' >= sz) $ do
-            v <- liftBase $ V.unsafeFreeze $ VM.unsafeSlice (end' - sz) sz mv
-            yield v
-          go end' mv
--- {-# SPECIALIZE slidingVectorWindowA :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
+          mv' <- if end' >= sz
+                   then do v <- liftBase $ V.unsafeFreeze mv
+                           yield $ V.unsafeSlice (end' - sz) sz v
+                           liftBase $ V.unsafeThaw v
+                   else return mv
+          go end' mv' mv2
+{-# SPECIALIZE unsafeSlidingVectorWindow :: V.Vector v a => Int -> Conduit a SIO.IO (v a) #-}
 
 codeWith :: Monad m
          => Int

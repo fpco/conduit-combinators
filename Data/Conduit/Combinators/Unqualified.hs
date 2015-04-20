@@ -132,6 +132,7 @@ module Data.Conduit.Combinators.Unqualified
     , intersperseC
     , slidingWindowC
     , slidingVectorWindowC
+    , unsafeSlidingVectorWindowC
 
       -- **** Binary base encoding
     , encodeBase64C
@@ -1177,11 +1178,25 @@ slidingWindowC = CC.slidingWindow
 -- | Sliding window of values in a vector
 --
 -- Provides the same functionality as 'slidingWindow', but with
--- vectors. O(1) time per element.
-slidingVectorWindowC :: (PrimMonad base, MonadBase base m, V.Vector v a)
-                       => Int -> Conduit a m (v a)
+-- vectors. O(1) time per element. Buffers results in chunks
+-- of the window size in order to avoid allocating a new vector
+-- for every yield.  To prevent buffering, use
+-- 'unsafeSlidingVectorWindow'.
+slidingVectorWindowC :: (PrimMonad base, MonadBase base m, V.Vector v a, Show a)
+                     => Int -> Conduit a m (v a)
 slidingVectorWindowC = CC.slidingVectorWindow
 {-# INLINE slidingVectorWindowC #-}
+
+-- | Sliding window of values in a vector
+--
+-- Provides the same functionality as 'slidingWindow', but with
+-- vectors. O(1) time per element.
+--
+-- WARNING: It is /not/ safe to use the yielded vectors outside the inner sink.
+unsafeSlidingVectorWindowC :: (PrimMonad base, MonadBase base m, V.Vector v a, Show a)
+                           => Int -> Conduit a m (v a)
+unsafeSlidingVectorWindowC = CC.unsafeSlidingVectorWindow
+{-# INLINE unsafeSlidingVectorWindowC #-}
 
 -- | Apply base64-encoding to the stream.
 --
