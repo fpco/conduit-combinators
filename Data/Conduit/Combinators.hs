@@ -1612,7 +1612,7 @@ unsafeSlidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
     bufSz = 2 * sz
     newBuf = liftBase (VM.new bufSz)
 
-    go !end mv mv2 | end == bufSz = go sz mv2 mv2
+    go !end mv mv2 | end == bufSz = go sz mv2 mv
     go !end mv mv2 = do
       mx <- await
       case mx of
