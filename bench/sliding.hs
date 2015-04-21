@@ -4,7 +4,7 @@
 
 import Criterion.Main
 import Conduit
-import Data.Conduit.Combinators (slidingWindow, slidingVectorWindow, slidingVectorWindowA)
+import Data.Conduit.Combinators (slidingWindow, slidingVectorWindow, unsafeSlidingVectorWindow)
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as VU
@@ -52,8 +52,8 @@ benchV :: (Element (seq Int) ~ Int)
        -> seq Int -- ^ dummy
        -> Benchmark
 -}
-benchV = benchHelper "slidingVector" slidingVectorWindow
-benchVA = benchHelper "slidingVectorAmortized" slidingVectorWindowA
+benchV = benchHelper "slidingVectorWindow" slidingVectorWindow
+benchUV = benchHelper "unsafeSlidingVectorWindow" unsafeSlidingVectorWindow
 
 {-
 benchW :: (Element (seq Int) ~ Int)
@@ -66,13 +66,13 @@ benchW = benchHelper "slidingWindow" slidingWindow
 main :: IO ()
 main = defaultMain
     [ benchV "unboxed" VU.empty
-    , benchVA "unboxed" VU.empty
+    , benchUV "unboxed" VU.empty
     , benchW "unboxed vector" VU.empty
     , benchV "boxed" V.empty
-    , benchVA "boxed" V.empty
+    , benchUV "boxed" V.empty
     , benchW "boxed vector" V.empty
     , benchV "storable" VS.empty
-    , benchVA "storable" VS.empty
+    , benchUV "storable" VS.empty
     , benchW "storable vector" VS.empty
     , benchW "list" []
     , benchW "Seq" Data.Sequence.empty
