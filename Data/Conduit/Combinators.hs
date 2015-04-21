@@ -1559,10 +1559,11 @@ STREAMING(slidingWindow, slidingWindowC, slidingWindowS, sz)
 -- | Sliding window of values in a vector
 --
 -- Provides the same functionality as 'slidingWindow', but with
--- vectors. O(1) time per element. Buffers results in chunks
--- of the window size in order to avoid allocating a new vector
--- for every yield.  To prevent buffering, use
--- 'unsafeSlidingVectorWindow'.
+-- vectors. O(1) time per element.
+--
+-- Note: This conduit buffers results in chunks of the window size in
+-- order to avoid allocating a new vector for every yield.  To prevent
+-- buffering, use 'unsafeSlidingVectorWindow'.
 slidingVectorWindow :: (PrimMonad base, MonadBase base m, V.Vector v a)
                     => Int -> Conduit a m (v a)
 slidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
@@ -1601,7 +1602,8 @@ slidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
 -- Provides the same functionality as 'slidingWindow', but with
 -- vectors. O(1) time per element.
 --
--- WARNING: It is /not/ safe to use the yielded vectors outside the inner sink.
+-- WARNING: This conduit yields vectors that are /not/ referentially transparent.
+-- These vectors will be overwritten as soon as control is returned from the inner sink!
 unsafeSlidingVectorWindow :: (PrimMonad base, MonadBase base m, V.Vector v a)
                           => Int -> Conduit a m (v a)
 unsafeSlidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
@@ -1610,7 +1612,7 @@ unsafeSlidingVectorWindow sz0 = join $ go 0 <$> newBuf <*> newBuf
     bufSz = 2 * sz
     newBuf = liftBase (VM.new bufSz)
 
-    go !end _ mv2 | end == bufSz = newBuf >>= go sz mv2
+    go !end mv mv2 | end == bufSz = go sz mv2 mv2
     go !end mv mv2 = do
       mx <- await
       case mx of

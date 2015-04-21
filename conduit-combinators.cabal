@@ -71,6 +71,7 @@ test-suite test
                 , safe
                 , QuickCheck >= 2.5
                 , directory
+                , deepseq
   ghc-options:    -Wall
 
 benchmark sliding

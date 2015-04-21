@@ -45,6 +45,7 @@ import qualified Data.ByteString.Base64.URL.Lazy as B64LU
 import qualified Data.ByteString.Base64.URL as B64U
 import Control.Monad.ST (runST)
 import qualified StreamSpec
+import Control.DeepSeq (($!!))
 
 main :: IO ()
 main = hspec $ do
@@ -623,8 +624,11 @@ main = hspec $ do
         actual `shouldBe` (expected :: [VU.Vector Int])
     prop "unsafeSlidingVectorWindow idem to slidingWindow" $ \input ((+1) . (`mod` 30) -> size) -> do
         let expected = runIdentity $ yieldMany input $$ slidingWindow size =$ sinkList
-        actual <- yieldMany (input :: [Int]) $$ unsafeSlidingVectorWindow size =$ sinkList
-        actual `shouldBe` (expected :: [VU.Vector Int])
+        actual <- yieldMany (input :: [Int])
+               $$ unsafeSlidingVectorWindow size
+               =$ mapMC (\v -> return $!! VU.toList v)
+               =$ sinkList
+        actual `shouldBe` (expected :: [[Int]])
     prop "vectorBuilder" $ \(values :: [[Int]]) ((+1) . (`mod` 30) . abs -> size) -> do
         let res = runST
                 $ yieldMany values
